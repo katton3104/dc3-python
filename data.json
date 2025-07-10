@@ -1,0 +1,177 @@
+{
+    "cmd": "update",
+    "next_team": null,
+    "state": {
+        "end": 10,
+        "extra_end_score": {
+            "team0": null,
+            "team1": null
+        },
+        "game_result": {
+            "winner": "team1",
+            "reason": "score"
+        },
+        "hammer": null,
+        "scores": {
+            "team0": [
+                0,
+                0,
+                0,
+                1,
+                0,
+                3,
+                1,
+                0,
+                0,
+                0
+            ],
+            "team1": [
+                1,
+                3,
+                1,
+                0,
+                1,
+                0,
+                0,
+                1,
+                1,
+                3
+            ]
+        },
+        "shot": 0,
+        "stones": {
+            "team0": [
+                {
+                    "angle": null,
+                    "position": {
+                        "x": null,
+                        "y": null
+                    }
+                },
+                {
+                    "angle": null,
+                    "position": {
+                        "x": null,
+                        "y": null
+                    }
+                },
+                {
+                    "angle": null,
+                    "position": {
+                        "x": null,
+                        "y": null
+                    }
+                },
+                {
+                    "angle": null,
+                    "position": {
+                        "x": null,
+                        "y": null
+                    }
+                },
+                {
+                    "angle": null,
+                    "position": {
+                        "x": null,
+                        "y": null
+                    }
+                },
+                {
+                    "angle": null,
+                    "position": {
+                        "x": null,
+                        "y": null
+                    }
+                },
+                {
+                    "angle": null,
+                    "position": {
+                        "x": null,
+                        "y": null
+                    }
+                },
+                {
+                    "angle": null,
+                    "position": {
+                        "x": null,
+                        "y": null
+                    }
+                }
+            ],
+            "team1": [
+                {
+                    "angle": null,
+                    "position": {
+                        "x": null,
+                        "y": null
+                    }
+                },
+                {
+                    "angle": null,
+                    "position": {
+                        "x": null,
+                        "y": null
+                    }
+                },
+                {
+                    "angle": null,
+                    "position": {
+                        "x": null,
+                        "y": null
+                    }
+                },
+                {
+                    "angle": null,
+                    "position": {
+                        "x": null,
+                        "y": null
+                    }
+                },
+                {
+                    "angle": null,
+                    "position": {
+                        "x": null,
+                        "y": null
+                    }
+                },
+                {
+                    "angle": null,
+                    "position": {
+                        "x": null,
+                        "y": null
+                    }
+                },
+                {
+                    "angle": null,
+                    "position": {
+                        "x": null,
+                        "y": null
+                    }
+                },
+                {
+                    "angle": null,
+                    "position": {
+                        "x": null,
+                        "y": null
+                    }
+                }
+            ]
+        },
+        "thinking_time_remaining": {
+            "team0": 206.087,
+            "team1": 188.919
+        }
+    },
+    "last_move": {
+        "actual_move": {
+            "rotation": "ccw",
+            "type": "shot",
+            "velocity": {
+                "x": 0.0061938646249473095,
+                "y": 2.3982765674591064
+            }
+        },
+        "free_guard_zone_foul": false,
+        "trajectory": null
+    }
+}
