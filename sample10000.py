@@ -32,7 +32,7 @@ if __name__ == "__main__":
     # auto_start : サーバーに接続した際に自動で試合を開始するかどうかを指定します。デフォルトではTrueとなっています。
     # これは、dc3のコンバート機能のみを使用したいときにサーバーを起動する必要をなくすために用意されています。
     # rate_limit : 通信のレート制限を指定します。デフォルトでは2.0秒に1回となっています。早すぎるとサーバーから切断される可能性があります。
-    cli = SocketClient(host="dc3-server", port=10000, client_name="SAMPLE_AI0", auto_start=True, rate_limit=3.0)
+    cli = SocketClient(host="dc3-server", port=10000, client_name="SAMPLE_AI0", auto_start=True, rate_limit=0.1)
 
     # ログを出力するディレクトリを指定します。デフォルトでは"logs/"となっています。
     log_dir = pathlib.Path("logs")
