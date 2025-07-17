@@ -87,7 +87,7 @@ if __name__ == "__main__":
             # StoneRotation.inturn : インターン = 時計回り
             # StoneRotation.counterclockwise : 反時計回り
             # StoneRotation.outturn : アウトターン = 反時計回り
-            cli.move(x=0, y=2.4, rotation=StoneRotation.counterclockwise)
+            cli.move(x=0.131725, y=2.39969, rotation=StoneRotation.counterclockwise)
         else:
             # 次のチームが自分のチームでなければ、何もしません
             continue
