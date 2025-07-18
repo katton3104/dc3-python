@@ -2,107 +2,149 @@ import json
 import pathlib
 
 from dc3client import SocketClient
-from dc3client.models import StoneRotation
+from dc3client.models import Coordinate, Position, State, StoneRotation, Stones, Velocity
+
+from dataclasses import dataclass
+import math
+from typing import List, Tuple, Optional, Sequence
+
+# 座標位置：バックライン(y=40.234)、ティーライン(y=38.405)、フロントライン(y=36.576)
+TEE = Position(x=0.0, y=38.405)
+BACK = Position(x=0.0, y=40.234)
+FRONT = Position(x=0.0, y=36.576)
+HOUSE_RADIUS = 1.83 / 2  # 1.83 m diameter → 0.915 m radius
+STONE_RADIUS = 0.145
+
+# ボタン
+CENTER_SHOT: Tuple[float, float, StoneRotation] = (0.131725, 2.39969, StoneRotation.counterclockwise)
+# ガード
+GUARD_SHOT:  Tuple[float, float, StoneRotation] = (0.127987, 2.33253, StoneRotation.counterclockwise)
+
+@dataclass
+class StoneRef:
+    team: int # 0 or 1
+    idx: int # 0‥7
+    distance: float
+
+# Stones から Position を安全に取り出す
+def get_stone_position(stones: Stones, team: int, idx: int) -> Optional[Position]:
+    coord_list: List[Coordinate] = stones.team0 if team == 0 else stones.team1
+    if idx >= len(coord_list):
+        return None
+    coord = coord_list[idx]
+    if coord is None or not coord.position:
+        return None
+    pos = coord.position[0]
+    if pos.x is None or pos.y is None:
+        return None
+    return pos
+
+# ハウス中心からの距離で全ストーンを昇順ソート
+def sort_stones_by_distance(stones: Stones) -> List[StoneRef]:
+    refs: List[StoneRef] = []
+    for team in (0, 1):
+        for idx in range(8):
+            pos = get_stone_position(stones, team, idx)
+            if pos is None:
+                dist = math.inf
+            else:
+                dist = math.hypot(pos.x - TEE.x, pos.y - TEE.y)
+            refs.append(StoneRef(team, idx, dist))
+    refs.sort(key=lambda r: r.distance)
+    return refs
+
+def _poly(a: Sequence[float], x: float) -> float:
+    return sum(coef * x ** i for i, coef in enumerate(reversed(a)))
+
+def estimate_shot_velocity_fcv1(target: Position, target_speed: float, rotation: StoneRotation) -> tuple[float, float]:
+    assert 0.0 <= target_speed <= 4.0
+    target_r = math.hypot(target.x, target.y)
+    assert target_r > 0.0
+
+    if target_speed <= 0.05:
+        kC0 = (0.0005048122574925176, 0.2756242531609261)
+        kC1 = (0.00046669575066030805, -29.898958358378636, -0.0014030973174948508)
+        kC2 = (0.13968687866736632, 0.41120940058777616)
+    elif target_speed <= 1.0:
+        kC0 = (-0.0014309170115803444, 0.9858457898438147)
+        kC1 = (-0.0008339331735471273, -29.86751291726946, -0.19811799977982522)
+        kC2 = (0.13967323742978, 0.42816312110477517)
+    else:
+        kC0 = (1.0833113118071224e-06, -0.00012132851917870833, 0.004578093297561233, 0.9767006869364527)
+        kC1 = (0.07950648211492622, -8.228225657195706, -0.05601306077702578)
+        kC2 = (0.14140440186382008, 0.3875782508767419)
+
+    def c0(r): return _poly(kC0, r)
+    def c1(r): return -kC1[0] * math.log(r + kC1[1]) + kC1[2]
+    def c2(r): return kC2[0] * r + kC2[1]
+
+    v0_mag = math.sqrt(c0(target_r) * target_speed ** 2 + c1(target_r) * target_speed + c2(target_r))
+    assert target_speed < v0_mag
+
+    # --- delta_angle を近似的に補正 ---
+    rotation_factor = 1.0 if rotation == StoneRotation.counterclockwise else -1.0
+    delta_const = 0.25
+    delta_angle = rotation_factor * delta_const / target_r
+
+    target_angle = math.atan2(target.y, target.x)
+    v0_angle = target_angle + delta_angle
+
+    vx = v0_mag * math.cos(v0_angle)
+    vy = v0_mag * math.sin(v0_angle)
+
+    if not math.isfinite(vx) or not math.isfinite(vy):
+        print("[warn] Non-finite velocity. Falling back.")
+        return 0.131725, 2.39969
+
+    return vx, vy
+
+class ThinkingAI:
+    def decide(self, state: State, my_team: str) -> Tuple[float, float, StoneRotation]:
+        sorted_refs = sort_stones_by_distance(state.stones)
+        top = sorted_refs[0]
+
+        my_team_idx = 0 if my_team == "team0" else 1
+
+        in_house = top.distance < (HOUSE_RADIUS + STONE_RADIUS)
+        opponent_leading = in_house and top.team != my_team_idx
+
+        if opponent_leading:
+            target_pos = get_stone_position(state.stones, top.team, top.idx)
+            if target_pos is not None:
+                vx, vy = estimate_shot_velocity_fcv1(target_pos, 3.75, StoneRotation.counterclockwise)
+                return vx, vy, StoneRotation.counterclockwise
+        else:
+            return CENTER_SHOT
 
 if __name__ == "__main__":
-    # 機械学習のモデルなど、時間のかかる処理はここで行います。
-    # 通信プロトコルの解説において、is_readyを受け取ってからreadyを返すまでに行うことを推奨しています。
-    # しかしながら、そのタイミングでエラーが生じるとサーバー自体の動作が停止してしまうため、すべての準備が終わってから接続を行うことを推奨します。
-    # dc3の推奨に従う場合、以下のようになります。
-    # 1. auto_startをFalseにしてSocketClientを初期化する
-    #   cli = SocketClient(auto_start=False)
-    # 2. サーバーに接続する
-    #   cli.connect(cli.server)
-    # 3. dcを受け取る
-    #   cli.dc_receive()
-    # 4. dc_okを送信する
-    #   cli.dc_ok()
-    # 5. is_readyを受け取る
-    #   cli.is_ready_recv()
-    # 6. モデルを読み込むなどの準備を行う
-    # 7. ready_okを送信する
-    #   cli.ready_ok()
-    # 8. サーバーからの開始指示を待つ
-    #   cli.get_new_game()
-
-    # SocketClientには以下の引数を渡すことができます
-    # host : デジタルカーリングを実行しているサーバーのIPアドレスを指定します。名前解決可能であればホスト名でも指定可能です。
-    # port : デジタルカーリングを実行しているサーバーの指定されたポート番号を指定します。
-    # client_name : クライアントの名前を指定します。デフォルトでは"AI0"となっています。
-    # auto_start : サーバーに接続した際に自動で試合を開始するかどうかを指定します。デフォルトではTrueとなっています。
-    # これは、dc3のコンバート機能のみを使用したいときにサーバーを起動する必要をなくすために用意されています。
-    # rate_limit : 通信のレート制限を指定します。デフォルトでは2.0秒に1回となっています。早すぎるとサーバーから切断される可能性があります。
-    cli = SocketClient(host="dc3-server", port=10000, client_name="CurlFighter01", auto_start=True, rate_limit=0.1)
-
-    # ログを出力するディレクトリを指定します。デフォルトでは"logs/"となっています。
+    cli = SocketClient(host="dc3-server", port=10000, client_name="CurlFighter00", auto_start=True, rate_limit=0.1)
     log_dir = pathlib.Path("logs")
-
-    # データ保存時に、軌跡データを削除するかどうかを指定します。デフォルトではTrueとなっています。
-    # 軌跡データを保存すると容量が膨大になるため、必要ない場合はTrueにしてください。
     remove_trajectory = True
 
-    # 自分がteam0かteam1かを取得します
     my_team = cli.get_my_team()
     cli.logger.info(f"my_team :{my_team}")
 
-    # dcやis_readyをdataclass形式で取得し、保存しやすいようにdict形式に変換します。
-    dc = cli.get_dc()
-    dc_message = cli.convert_dc(dc)
-    is_ready = cli.get_is_ready()
-    is_ready_message = cli.convert_is_ready(is_ready)
+    ai = ThinkingAI()
 
-    # 試合を開始します
     while True:
-
-        # updateを受け取ります
         cli.update()
 
-        # 試合状況を取得します
-        # 現在の情報は、match_data.update_listに順番に格納されています
-        match_data = cli.get_match_data()
-
-        # winnerが存在するかどうかで、試合が終了しているかどうかを確認します
         if (winner := cli.get_winner()) is not None:
-            # game end
-            if my_team == winner:
-                # 勝利
-                cli.logger.info("WIN")
-            else:
-                # 敗北
-                cli.logger.info("LOSE")
-            # 試合が終了したらループを抜けます
+            cli.logger.info("WIN" if my_team == winner else "LOSE")
             break
 
-        # 次のチームが自分のチームかどうかを確認します
-        next_team = cli.get_next_team()
-
-        # 次のチームが自分のチームであれば、moveを送信します
-        if my_team == next_team:
-            # 実際の投球は、move関数を呼び出すことで行います
-            # move関数の引数は、x, y, rotationの3つです
-            # x, yはそれぞれ投球する石のx(横)方向成分、y(縦)方向成分を指定します
-            # rotationは投球する石の回転方向を指定します
-            # このとき、rotationにはStoneRotationクラスの値を指定します
-            # StoneRotation.clockwise : 時計回り
-            # StoneRotation.inturn : インターン = 時計回り
-            # StoneRotation.counterclockwise : 反時計回り
-            # StoneRotation.outturn : アウトターン = 反時計回り
-            cli.move(x=0, y=2.4, rotation=StoneRotation.counterclockwise)
-        else:
-            # 次のチームが自分のチームでなければ、何もしません
+        if cli.get_next_team() != my_team:
             continue
 
-    # 試合が終了したら、clientから試合データを取得します
+        state = cli.get_match_data().update_list[-1].state
+        vx, vy, rot = ai.decide(state, my_team)
+        cli.move(x=vx, y=vy, rotation=rot)
+
     move_info = cli.get_move_info()
     update_list, trajectory_list = cli.get_update_and_trajectory(remove_trajectory)
 
-    # 試合データを保存します、
     update_dict = {}
-
     for update in update_list:
-        # updateをdict形式に変換します
         update_dict = cli.convert_update(update, remove_trajectory)
-
-    # updateを保存します、どのように保存するかは任意です
     with open("data.json", "w", encoding="UTF-8") as f:
         json.dump(update_dict, f, indent=4)

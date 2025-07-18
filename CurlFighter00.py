@@ -2,12 +2,12 @@ import json
 import pathlib
 
 from dc3client import SocketClient
-from dc3client.models import Coordinate, Position, State, StoneRotation, Stones
+from dc3client.models import Coordinate, Position, State, StoneRotation, Stones, Velocity
 
-import math
 from dataclasses import dataclass
-
+import math
 from typing import List, Tuple, Optional, Sequence
+
 # 座標位置：バックライン(y=40.234)、ティーライン(y=38.405)、フロントライン(y=36.576)
 TEE = Position(x=0.0, y=38.405)
 BACK = Position(x=0.0, y=40.234)
@@ -28,14 +28,12 @@ class StoneRef:
 
 # Stones から Position を安全に取り出す
 def get_stone_position(stones: Stones, team: int, idx: int) -> Optional[Position]:
-    """Return current Position of the stone or *None* if out of play."""
     coord_list: List[Coordinate] = stones.team0 if team == 0 else stones.team1
     if idx >= len(coord_list):
         return None
     coord = coord_list[idx]
     if coord is None or not coord.position:
         return None
-    # position[0] が現時点の座標（仕様より）
     pos = coord.position[0]
     if pos.x is None or pos.y is None:
         return None
@@ -43,7 +41,6 @@ def get_stone_position(stones: Stones, team: int, idx: int) -> Optional[Position
 
 # ハウス中心からの距離で全ストーンを昇順ソート
 def sort_stones_by_distance(stones: Stones) -> List[StoneRef]:
-    """。"""
     refs: List[StoneRef] = []
     for team in (0, 1):
         for idx in range(8):
@@ -56,13 +53,10 @@ def sort_stones_by_distance(stones: Stones) -> List[StoneRef]:
     refs.sort(key=lambda r: r.distance)
     return refs
 
-# estimate_shot_velocity_fcv1で使用
 def _poly(a: Sequence[float], x: float) -> float:
     return sum(coef * x ** i for i, coef in enumerate(reversed(a)))
 
-# 単回帰近似式と delta_angle 簡易近似をそのまま使用
-def estimate_shot_velocity_fcv1(target: Position, target_speed: float, rotation: StoneRotation) -> Tuple[float, float]:
-    
+def estimate_shot_velocity_fcv1(target: Position, target_speed: float, rotation: StoneRotation) -> tuple[float, float]:
     assert 0.0 <= target_speed <= 4.0
     target_r = math.hypot(target.x, target.y)
     assert target_r > 0.0
@@ -80,29 +74,16 @@ def estimate_shot_velocity_fcv1(target: Position, target_speed: float, rotation:
         kC1 = (0.07950648211492622, -8.228225657195706, -0.05601306077702578)
         kC2 = (0.14140440186382008, 0.3875782508767419)
 
-    def c0(r: float) -> float:
-        return _poly(kC0, r)
-
-    def c1(r: float) -> float:
-        return -kC1[0] * math.log(r + kC1[1]) + kC1[2]
-
-    def c2(r: float) -> float:
-        return kC2[0] * r + kC2[1]
+    def c0(r): return _poly(kC0, r)
+    def c1(r): return -kC1[0] * math.log(r + kC1[1]) + kC1[2]
+    def c2(r): return kC2[0] * r + kC2[1]
 
     v0_mag = math.sqrt(c0(target_r) * target_speed ** 2 + c1(target_r) * target_speed + c2(target_r))
     assert target_speed < v0_mag
 
-    # --- 2. get delta angle by one‑shot simulation (simplified) -----------
-    # NOTE: A full physical simulation is OUT OF SCOPE for this minimal port.
-    # We approximate the angular correction term (delta_angle) by the linear
-    # factor used in the original code when no sim is available.
+    # --- delta_angle を近似的に補正 ---
     rotation_factor = 1.0 if rotation == StoneRotation.counterclockwise else -1.0
-
-    # Original C++ sim computes delta = stone_pos_when_speed_le_target - target
-    # Here we approximate with empirical constant since full sim unavailable.
-    # **You SHOULD replace this with proper simulator calls** if accuracy is
-    # required.
-    delta_const = 0.25  # 簡易近似
+    delta_const = 0.25
     delta_angle = rotation_factor * delta_const / target_r
 
     target_angle = math.atan2(target.y, target.x)
@@ -110,35 +91,30 @@ def estimate_shot_velocity_fcv1(target: Position, target_speed: float, rotation:
 
     vx = v0_mag * math.cos(v0_angle)
     vy = v0_mag * math.sin(v0_angle)
+
+    if not math.isfinite(vx) or not math.isfinite(vy):
+        print("[warn] Non-finite velocity. Falling back.")
+        return 0.131725, 2.39969
+
     return vx, vy
 
 class ThinkingAI:
-    """Very small rule‑based AI using the fixed helpers."""
-
     def decide(self, state: State, my_team: str) -> Tuple[float, float, StoneRotation]:
-        # ハウス内の最も中心に近いストーンを取得
         sorted_refs = sort_stones_by_distance(state.stones)
         top = sorted_refs[0]
 
-        # 自分のチーム番号 (0/1) を算出
         my_team_idx = 0 if my_team == "team0" else 1
 
         in_house = top.distance < (HOUSE_RADIUS + STONE_RADIUS)
         opponent_leading = in_house and top.team != my_team_idx
 
         if opponent_leading:
-            # テイクアウト狙い
             target_pos = get_stone_position(state.stones, top.team, top.idx)
             if target_pos is not None:
-                vx, vy = estimate_shot_velocity_fcv1(target_pos, 3.0, StoneRotation.clockwise)
-                return vx, vy, StoneRotation.clockwise
-
-        # それ以外は交互にセンター／ガード
-        if state.shot % 2 == 0:
-            return CENTER_SHOT
+                vx, vy = estimate_shot_velocity_fcv1(target_pos, 3.75, StoneRotation.counterclockwise)
+                return vx, vy, StoneRotation.counterclockwise
         else:
-            return GUARD_SHOT
-
+            return CENTER_SHOT
 
 if __name__ == "__main__":
     cli = SocketClient(host="dc3-server", port=10000, client_name="CurlFighter00", auto_start=True, rate_limit=0.1)
