@@ -7,6 +7,7 @@ from dc3client.models import Coordinate, Position, State, StoneRotation, Stones,
 from dataclasses import dataclass
 import math
 from typing import List, Tuple, Optional, Sequence
+import simulator
 
 # 座標位置：バックライン(y=40.234)、ティーライン(y=38.405)、フロントライン(y=36.576)
 TEE = Position(x=0.0, y=38.405)
@@ -57,67 +58,55 @@ def _poly(a: Sequence[float], x: float) -> float:
     return sum(coef * x ** i for i, coef in enumerate(reversed(a)))
 
 def estimate_shot_velocity_fcv1(target: Position, target_speed: float, rotation: StoneRotation) -> tuple[float, float]:
-    assert 0.0 <= target_speed <= 4.0
-    target_r = math.hypot(target.x, target.y)
-    assert target_r > 0.0
+    # 入力チェック
+    assert 0.0 <= target_speed <= 4.0, "target_speed must be in [0, 4]"
 
-    if target_speed <= 0.05:
-        kC0 = (0.0005048122574925176, 0.2756242531609261)
-        kC1 = (0.00046669575066030805, -29.898958358378636, -0.0014030973174948508)
-        kC2 = (0.13968687866736632, 0.41120940058777616)
-    elif target_speed <= 1.0:
-        kC0 = (-0.0014309170115803444, 0.9858457898438147)
-        kC1 = (-0.0008339331735471273, -29.86751291726946, -0.19811799977982522)
-        kC2 = (0.13967323742978, 0.42816312110477517)
-    else:
-        kC0 = (1.0833113118071224e-06, -0.00012132851917870833, 0.004578093297561233, 0.9767006869364527)
-        kC1 = (0.07950648211492622, -8.228225657195706, -0.05601306077702578)
-        kC2 = (0.14140440186382008, 0.3875782508767419)
+    # StoneRotation enum からシミュレータ向けの回転符号を生成
+    # ここでは、ccw → +1, cw → -1 とする
+    # 入力チェック
+    if not (0.0 <= target_speed <= 4.0):
+        raise ValueError(f"target_speed must be in [0, 4], got {target_speed}")
 
-    def c0(r): return _poly(kC0, r)
-    def c1(r): return -kC1[0] * math.log(r + kC1[1]) + kC1[2]
-    def c2(r): return kC2[0] * r + kC2[1]
-
-    v0_mag = math.sqrt(c0(target_r) * target_speed ** 2 + c1(target_r) * target_speed + c2(target_r))
-    assert target_speed < v0_mag
-
-    # --- delta_angle を近似的に補正 ---
-    rotation_factor = 1.0 if rotation == StoneRotation.counterclockwise else -1.0
-    delta_const = 0.25
-    delta_angle = rotation_factor * delta_const / target_r
-
-    target_angle = math.atan2(target.y, target.x)
-    v0_angle = target_angle + delta_angle
-
-    vx = v0_mag * math.cos(v0_angle)
-    vy = v0_mag * math.sin(v0_angle)
-
-    if not math.isfinite(vx) or not math.isfinite(vy):
-        print("[warn] Non-finite velocity. Falling back.")
-        return 0.131725, 2.39969
+    # simulator モジュールの関数を呼び出し
+    # 関数名・引数順はドキュメントに合わせて適宜読み替えてください
+    vx, vy = simulator.estimate_shot_velocity(
+        float(target.x),
+        float(target.y),
+        float(target_speed),
+        rot_sign
+    )
 
     return vx, vy
 
 class ThinkingAI:
     def decide(self, state: State, my_team: str) -> Tuple[float, float, StoneRotation]:
+        """
+        ・ハウス内にストーンがなければハウス中心へのドロー
+        ・それ以外はナンバーワンストーンが自チームならガード、相手チームならテイクアウト
+        """
         sorted_refs = sort_stones_by_distance(state.stones)
-        top = sorted_refs[0]
-
         my_team_idx = 0 if my_team == "team0" else 1
 
-        in_house = top.distance < (HOUSE_RADIUS + STONE_RADIUS)
-        opponent_leading = in_house and top.team != my_team_idx
+        # 1) ハウス内のストーン抽出
+        stones_in_house = [
+            ref for ref in sorted_refs
+            if ref.distance < (HOUSE_RADIUS + STONE_RADIUS)
+        ]
+        if not stones_in_house:
+            # ハウス内ストーンゼロ → ハウス中心へ置く
+            return CENTER_SHOT
 
-        if opponent_leading:
-            target_pos = get_stone_position(state.stones, top.team, top.idx)
-            if target_pos is not None:
-                vx, vy = estimate_shot_velocity_fcv1(target_pos, 3.75, StoneRotation.counterclockwise)
-                return vx, vy, StoneRotation.counterclockwise
+        # 2) ハウス内にストーンあり → 最も近いストーンで判断
+        top = sorted_refs[0]
+        if top.team == my_team_idx:
+            # 自チームリード → ガード
+            return GUARD_SHOT
         else:
+            # 相手リード → テイクアウト（ハウス中心）
             return CENTER_SHOT
 
 if __name__ == "__main__":
-    cli = SocketClient(host="dc3-server", port=10000, client_name="CurlFighter00", auto_start=True, rate_limit=0.1)
+    cli = SocketClient(host="dc3-server", port=10001, client_name="CurlFighter01", auto_start=True, rate_limit=0.1)
     log_dir = pathlib.Path("logs")
     remove_trajectory = True
 

@@ -1,6 +1,9 @@
 {
     "server": {
-        "port": { "team0": 10000, "team1": 10001 },
+        "port": {
+            "team0": 10000,
+            "team1": 10001
+        },
         "timeout_dc_ok": 10.0,
         "send_trajectory": true,
         "steps_per_trajectory_frame": 100
@@ -26,63 +29,63 @@
         },
         "players": {
             "team0": [
-                { // player 0
+                {
                     "type": "normal_dist",
                     "max_speed": 4.0,
                     "stddev_speed": 0.0076,
                     "stddev_angle": 0.0018,
-                    "seed": null
+                    "seed": 0
                 },
-                { // player 1
+                {
                     "type": "normal_dist",
                     "max_speed": 4.0,
                     "stddev_speed": 0.0076,
                     "stddev_angle": 0.0018,
-                    "seed": null
+                    "seed": 0
                 },
-                { // player 2
+                {
                     "type": "normal_dist",
                     "max_speed": 4.0,
                     "stddev_speed": 0.0076,
                     "stddev_angle": 0.0018,
-                    "seed": null
+                    "seed": 0
                 },
-                { // player 3
+                {
                     "type": "normal_dist",
                     "max_speed": 4.0,
                     "stddev_speed": 0.0076,
                     "stddev_angle": 0.0018,
-                    "seed": null
+                    "seed": 0
                 }
             ],
             "team1": [
-                { // player 0
+                {
                     "type": "normal_dist",
                     "max_speed": 4.0,
                     "stddev_speed": 0.0076,
                     "stddev_angle": 0.0018,
-                    "seed": null
+                    "seed": 0
                 },
-                { // player 1
+                {
                     "type": "normal_dist",
                     "max_speed": 4.0,
                     "stddev_speed": 0.0076,
                     "stddev_angle": 0.0018,
-                    "seed": null
+                    "seed": 0
                 },
-                { // player 2
+                {
                     "type": "normal_dist",
                     "max_speed": 4.0,
                     "stddev_speed": 0.0076,
                     "stddev_angle": 0.0018,
-                    "seed": null
+                    "seed": 0
                 },
-                { // player 3
+                {
                     "type": "normal_dist",
                     "max_speed": 4.0,
                     "stddev_speed": 0.0076,
                     "stddev_angle": 0.0018,
-                    "seed": null
+                    "seed": 0
                 }
             ]
         }

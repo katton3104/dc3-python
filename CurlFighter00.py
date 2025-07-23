@@ -8,23 +8,15 @@ from dataclasses import dataclass
 import math
 from typing import List, Tuple, Optional, Sequence
 
+import numpy as np
+from simulator  import StoneSimulator
+
 # 座標位置：バックライン(y=40.234)、ティーライン(y=38.405)、フロントライン(y=36.576)
 TEE = Position(x=0.0, y=38.405)
 BACK = Position(x=0.0, y=40.234)
 FRONT = Position(x=0.0, y=36.576)
-HOUSE_RADIUS = 1.83 / 2  # 1.83 m diameter → 0.915 m radius
+HOUSE_RADIUS = 1.83 / 2  # 1.83 m diameter → 0.915 m radius
 STONE_RADIUS = 0.145
-
-# ボタン
-CENTER_SHOT: Tuple[float, float, StoneRotation] = (0.131725, 2.39969, StoneRotation.counterclockwise)
-# ガード
-GUARD_SHOT:  Tuple[float, float, StoneRotation] = (0.127987, 2.33253, StoneRotation.counterclockwise)
-
-@dataclass
-class StoneRef:
-    team: int # 0 or 1
-    idx: int # 0‥7
-    distance: float
 
 # Stones から Position を安全に取り出す
 def get_stone_position(stones: Stones, team: int, idx: int) -> Optional[Position]:
@@ -40,81 +32,129 @@ def get_stone_position(stones: Stones, team: int, idx: int) -> Optional[Position
     return pos
 
 # ハウス中心からの距離で全ストーンを昇順ソート
-def sort_stones_by_distance(stones: Stones) -> List[StoneRef]:
-    refs: List[StoneRef] = []
+def sort_stones_by_distance(stones: Stones) -> List['StoneRef']:
+    refs: List['StoneRef'] = []
     for team in (0, 1):
         for idx in range(8):
             pos = get_stone_position(stones, team, idx)
-            if pos is None:
-                dist = math.inf
-            else:
-                dist = math.hypot(pos.x - TEE.x, pos.y - TEE.y)
+            dist = math.inf if pos is None else math.hypot(pos.x - TEE.x, pos.y - TEE.y)
             refs.append(StoneRef(team, idx, dist))
     refs.sort(key=lambda r: r.distance)
     return refs
 
-def _poly(a: Sequence[float], x: float) -> float:
-    return sum(coef * x ** i for i, coef in enumerate(reversed(a)))
+@dataclass
+class StoneRef:
+    team: int  # 0 or 1
+    idx: int   # 0‥7
+    distance: float
 
-def estimate_shot_velocity_fcv1(target: Position, target_speed: float, rotation: StoneRotation) -> tuple[float, float]:
-    assert 0.0 <= target_speed <= 4.0
-    target_r = math.hypot(target.x, target.y)
-    assert target_r > 0.0
+# ── config.json を読み込み null を置換してファイルへ書き戻し ──
+try:
+    with open("config.json", "r", encoding="utf-8") as f:
+        sim_conf = json.load(f)
+    # seed が null の場合は 0 をセット
+    for team_key in ("team0", "team1"):
+        players = sim_conf.get("game", {}).get("players", {}).get(team_key, [])
+        for p in players:
+            if p.get("seed") is None:
+                p["seed"] = 0
+    # 必要なら他の null フィールドも同様に処理
+    # 書き戻し
+    with open("config.json", "w", encoding="utf-8") as f:
+        json.dump(sim_conf, f, indent=4)
+except Exception as e:
+    print(f"[warn] config.json 読み込み/書き戻しエラー: {e}")
 
-    if target_speed <= 0.05:
-        kC0 = (0.0005048122574925176, 0.2756242531609261)
-        kC1 = (0.00046669575066030805, -29.898958358378636, -0.0014030973174948508)
-        kC2 = (0.13968687866736632, 0.41120940058777616)
-    elif target_speed <= 1.0:
-        kC0 = (-0.0014309170115803444, 0.9858457898438147)
-        kC1 = (-0.0008339331735471273, -29.86751291726946, -0.19811799977982522)
-        kC2 = (0.13967323742978, 0.42816312110477517)
-    else:
-        kC0 = (1.0833113118071224e-06, -0.00012132851917870833, 0.004578093297561233, 0.9767006869364527)
-        kC1 = (0.07950648211492622, -8.228225657195706, -0.05601306077702578)
-        kC2 = (0.14140440186382008, 0.3875782508767419)
+# ── シミュレータ初期化（引数なし） ──
+stone_simulator = StoneSimulator()
 
-    def c0(r): return _poly(kC0, r)
-    def c1(r): return -kC1[0] * math.log(r + kC1[1]) + kC1[2]
-    def c2(r): return kC2[0] * r + kC2[1]
 
-    v0_mag = math.sqrt(c0(target_r) * target_speed ** 2 + c1(target_r) * target_speed + c2(target_r))
-    assert target_speed < v0_mag
-
-    # --- delta_angle を近似的に補正 ---
-    rotation_factor = 1.0 if rotation == StoneRotation.counterclockwise else -1.0
-    delta_const = 0.25
-    delta_angle = rotation_factor * delta_const / target_r
-
-    target_angle = math.atan2(target.y, target.x)
-    v0_angle = target_angle + delta_angle
-
-    vx = v0_mag * math.cos(v0_angle)
-    vy = v0_mag * math.sin(v0_angle)
-
-    if not math.isfinite(vx) or not math.isfinite(vy):
-        print("[warn] Non-finite velocity. Falling back.")
-        return 0.131725, 2.39969
-
+def estimate_shot_velocity_fcv1(target: Position, target_speed: float, rotation: StoneRotation) -> Tuple[float, float]:
+    """
+    C++シミュレータで投擲初速 (vx, vy) を計算
+    """
+    # 角度と目標速度から簡易計算
+    angle = math.atan2(target.y - 2.4, target.x)
+    vx = math.cos(angle) * target_speed
+    vy = math.sin(angle) * target_speed
     return vx, vy
+
+
+def evaluate_shot(state: State, my_team_idx: int, target: Position, speed: float, rotation: StoneRotation) -> Tuple[float, float, StoneRotation, float]:
+    """
+    指定したショットをシミュレートし、最終的なストーン配置からスコアを計算する
+    """
+    vx, vy = estimate_shot_velocity_fcv1(target, speed, rotation)
+
+    # 現在のすべてのストーン位置を NumPy 配列へ
+    pos_list = []
+    for team in (0, 1):
+        for idx in range(8):
+            p = get_stone_position(state.stones, team, idx)
+            pos_list.append([p.x, p.y] if p else [float('nan'), float('nan')])
+    np_positions = np.array(pos_list)
+
+    # シミュレーション実行
+    rot_sign = +1 if rotation == StoneRotation.counterclockwise else -1
+    shot_vector = np.array([vx, vy, rot_sign])
+    np_xv = np.zeros(np_positions.shape[0])
+    np_yv = np.zeros(np_positions.shape[0])
+    np_av = np.zeros(np_positions.shape[0])
+
+    result, flag = stone_simulator.simulator(
+        np_positions, shot_vector, np_xv, np_yv, np_av
+    )
+
+    # スコア計算: 自チームのハウス内ストーン数 - 相手チームのハウス内ストーン数
+    score = 0.0
+    for team_idx in (0, 1):
+        for i in range(8):
+            x, y = result[team_idx*8 + i]
+            if math.hypot(x - TEE.x, y - TEE.y) <= HOUSE_RADIUS:
+                score += (1 if team_idx == my_team_idx else -1)
+    return vx, vy, rotation, score
+
 
 class ThinkingAI:
     def decide(self, state: State, my_team: str) -> Tuple[float, float, StoneRotation]:
-        sorted_refs = sort_stones_by_distance(state.stones)
-        top = sorted_refs[0]
-
+        """
+        複数の候補ショットをシミュレートし、最もスコアが高いショットを選択する
+        """
         my_team_idx = 0 if my_team == "team0" else 1
+        sorted_refs = sort_stones_by_distance(state.stones)
+        in_house_refs = [r for r in sorted_refs if r.distance < (HOUSE_RADIUS + STONE_RADIUS)]
 
-        in_house = top.distance < (HOUSE_RADIUS + STONE_RADIUS)
-        opponent_leading = in_house and top.team != my_team_idx
-
-        if opponent_leading:
-            target_pos = get_stone_position(state.stones, top.team, top.idx)
-            if target_pos is not None:
-                vx, vy = estimate_shot_velocity_fcv1(target_pos, 3.75, StoneRotation.counterclockwise)
-                return vx, vy, StoneRotation.counterclockwise
+        # 候補ショットを定義
+        if not in_house_refs:
+            candidates = [
+                (TEE, 2.5, StoneRotation.counterclockwise),
+                (TEE, 4.0, StoneRotation.counterclockwise),
+                (FRONT, 2.5, StoneRotation.counterclockwise),
+            ]
+        elif sorted_refs[0].team == my_team_idx:
+            candidates = [
+                (FRONT, 2.5, StoneRotation.counterclockwise),
+                (BACK, 2.5, StoneRotation.counterclockwise),
+                (BACK, 3.0, StoneRotation.counterclockwise),
+            ]
         else:
-            return CENTER_SHOT
+            candidates = [
+                (TEE, 4.0, StoneRotation.counterclockwise),
+                (TEE, 4.0, StoneRotation.clockwise),
+                (TEE, 3.5, StoneRotation.counterclockwise),
+            ]
+
+        # 最適ショット探索
+        best = None
+        best_score = -math.inf
+        for tgt, spd, rot in candidates:
+            vx, vy, r, sc = evaluate_shot(state, my_team_idx, tgt, spd, rot)
+            if sc > best_score:
+                best_score = sc
+                best = (vx, vy, r)
+
+        return best
+
 
 if __name__ == "__main__":
     cli = SocketClient(host="dc3-server", port=10000, client_name="CurlFighter00", auto_start=True, rate_limit=0.1)
