@@ -1,5 +1,5 @@
 import numpy as np
-from build.simulator import StoneSimulator
+from simulator import StoneSimulator
 import json
 
 stone_simulator = StoneSimulator()
