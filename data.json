@@ -8,34 +8,34 @@
             "team1": null
         },
         "game_result": {
-            "winner": "team1",
+            "winner": "team0",
             "reason": "score"
         },
         "hammer": null,
         "scores": {
             "team0": [
+                0,
+                2,
+                0,
                 1,
-                0,
-                0,
+                2,
                 0,
                 1,
-                0,
-                0,
                 0,
                 0,
                 0
             ],
             "team1": [
+                1,
                 0,
                 1,
-                1,
-                4,
+                0,
                 0,
                 1,
+                0,
                 1,
-                1,
-                1,
-                1
+                0,
+                0
             ]
         },
         "shot": 0,
@@ -158,8 +158,8 @@
             ]
         },
         "thinking_time_remaining": {
-            "team0": 206.025,
-            "team1": 188.771
+            "team0": 197.867,
+            "team1": 197.859
         }
     },
     "last_move": {
@@ -167,8 +167,8 @@
             "rotation": "ccw",
             "type": "shot",
             "velocity": {
-                "x": 0.12619195878505707,
-                "y": 2.399587631225586
+                "x": 0.05243508517742157,
+                "y": 4.001434803009033
             }
         },
         "free_guard_zone_foul": false,

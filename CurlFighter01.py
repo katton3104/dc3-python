@@ -16,10 +16,19 @@ FRONT = Position(x=0.0, y=36.576)
 HOUSE_RADIUS = 1.83 / 2  # 1.83 m diameter → 0.915 m radius
 STONE_RADIUS = 0.145
 
+# ショット一覧
 # ボタン
-CENTER_SHOT: Tuple[float, float, StoneRotation] = (0.131725, 2.39969, StoneRotation.counterclockwise)
+DRAW_TEE: Tuple[float, float, StoneRotation] = (0.131725, 2.39969, StoneRotation.counterclockwise)
 # ガード
-GUARD_SHOT:  Tuple[float, float, StoneRotation] = (0.127987, 2.33253, StoneRotation.counterclockwise)
+DARW_GUARD:  Tuple[float, float, StoneRotation] = (0.127987, 2.33253, StoneRotation.counterclockwise)
+# テイクアウト
+TAKEOUT_CENTER: Tuple[float, float, StoneRotation] = (0.06, 3.999955, StoneRotation.counterclockwise)
+TAKEOUT_Right_1:  Tuple[float, float, StoneRotation] = (0.08, 3.9992, StoneRotation.counterclockwise)
+TAKEOUT_Right_2:  Tuple[float, float, StoneRotation] = (0.10, 3.99875, StoneRotation.counterclockwise)
+TAKEOUT_Right_3:  Tuple[float, float, StoneRotation] = (0.12, 3.9982, StoneRotation.counterclockwise)# 赤い円の右端通貨
+TAKEOUT_Left_1:  Tuple[float, float, StoneRotation] = (-0.08, 3.9992, StoneRotation.clockwise)
+TAKEOUT_Left_2:  Tuple[float, float, StoneRotation] = (-0.10, 3.99875, StoneRotation.clockwise)
+TAKEOUT_Left_3:  Tuple[float, float, StoneRotation] = (-0.12, 3.9982, StoneRotation.clockwise)# 赤い円の左端通貨
 
 @dataclass
 class StoneRef:
@@ -54,56 +63,49 @@ def sort_stones_by_distance(stones: Stones) -> List[StoneRef]:
     refs.sort(key=lambda r: r.distance)
     return refs
 
-def _poly(a: Sequence[float], x: float) -> float:
-    return sum(coef * x ** i for i, coef in enumerate(reversed(a)))
-
-def estimate_shot_velocity_fcv1(target: Position, target_speed: float, rotation: StoneRotation) -> tuple[float, float]:
-    # 入力チェック
-    assert 0.0 <= target_speed <= 4.0, "target_speed must be in [0, 4]"
-
-    # StoneRotation enum からシミュレータ向けの回転符号を生成
-    # ここでは、ccw → +1, cw → -1 とする
-    # 入力チェック
-    if not (0.0 <= target_speed <= 4.0):
-        raise ValueError(f"target_speed must be in [0, 4], got {target_speed}")
-
-    # simulator モジュールの関数を呼び出し
-    # 関数名・引数順はドキュメントに合わせて適宜読み替えてください
-    vx, vy = simulator.estimate_shot_velocity(
-        float(target.x),
-        float(target.y),
-        float(target_speed),
-        rot_sign
-    )
-
-    return vx, vy
-
 class ThinkingAI:
+    def __init__(self):
+        # フォーカスゾーンは decide 内で動的に判定するため、初期化不要
+        pass
+
     def decide(self, state: State, my_team: str) -> Tuple[float, float, StoneRotation]:
-        """
-        ・ハウス内にストーンがなければハウス中心へのドロー
-        ・それ以外はナンバーワンストーンが自チームならガード、相手チームならテイクアウト
-        """
+        # 全ストーンをティー中心から近い順にソート
         sorted_refs = sort_stones_by_distance(state.stones)
         my_team_idx = 0 if my_team == "team0" else 1
 
-        # 1) ハウス内のストーン抽出
-        stones_in_house = [
-            ref for ref in sorted_refs
-            if ref.distance < (HOUSE_RADIUS + STONE_RADIUS)
-        ]
-        if not stones_in_house:
-            # ハウス内ストーンゼロ → ハウス中心へ置く
-            return CENTER_SHOT
+        # フォーカスゾーン内のストーンを抽出
+        focus_refs: List[StoneRef] = []
+        for ref in sorted_refs:
+            pos = get_stone_position(state.stones, ref.team, ref.idx)
+            if pos is None:
+                continue
+            # フォーカスゾーンの定義
+            if pos.y < (TEE.y + STONE_RADIUS) and abs(pos.x - TEE.x) <= 7 * STONE_RADIUS:
+                focus_refs.append(ref)
 
-        # 2) ハウス内にストーンあり → 最も近いストーンで判断
-        top = sorted_refs[0]
+        # フォーカスゾーンにストーンがなければボタンショット
+        if not focus_refs:
+            return DRAW_TEE
+
+        # ナンバーワンストーン（最もティーに近い）を取得
+        top = focus_refs[0]
+        top_pos = get_stone_position(state.stones, top.team, top.idx)
+
+        # ナンバーワンが自チームならガード
         if top.team == my_team_idx:
-            # 自チームリード → ガード
-            return GUARD_SHOT
-        else:
-            # 相手リード → テイクアウト（ハウス中心）
-            return CENTER_SHOT
+            return DARW_GUARD
+
+        # ナンバーワンが相手チームならX座標からテイクアウト種別を選択
+        dx = top_pos.x - TEE.x
+        adx = abs(dx)
+        if adx <= 1 * STONE_RADIUS:
+            return TAKEOUT_CENTER
+        elif adx <= 3 * STONE_RADIUS:
+            return TAKEOUT_Right_1 if dx > 0 else TAKEOUT_Left_1
+        elif adx <= 5 * STONE_RADIUS:
+            return TAKEOUT_Right_2 if dx > 0 else TAKEOUT_Left_2
+        else: # 5*STONE_RADIUS < |dx| ≤ 7*STONE_RADIUS
+            return TAKEOUT_Right_3 if dx > 0 else TAKEOUT_Left_3
 
 if __name__ == "__main__":
     cli = SocketClient(host="dc3-server", port=10001, client_name="CurlFighter01", auto_start=True, rate_limit=0.1)
